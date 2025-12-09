@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดการอพาร์ทเม้นท์</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f0f2f5; }
+        .room-card { 
+            cursor: pointer; 
+            transition: transform 0.2s; 
+            border: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .room-card:active { transform: scale(0.95); } /* เอฟเฟกต์เวลากดบนมือถือ */
+        
+        /* สีสถานะห้อง */
+        .status-available { border-top: 5px solid #28a745; } /* เขียว */
+        .status-occupied { border-top: 5px solid #dc3545; }  /* แดง */
+        .status-maintenance { border-top: 5px solid #6c757d; } /* เทา */
+
+        .room-number { font-size: 1.2rem; font-weight: bold; }
+        .tenant-name { font-size: 0.9rem; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		
+
+        .blink { animation: blinker 1.5s linear infinite; }
+        @keyframes blinker { 
+            50% { opacity: 0.5; } 
+        }
+        
+		/* [แก้ไข] ปรับป้ายสถานะให้เล็กลง จะได้ไม่บังเลขห้อง */
+        .status-badge {
+            position: absolute;
+            top: 2px;           /* ชิดขอบบนมากขึ้น */
+            right: 2px;         /* ชิดขอบขวามากขึ้น */
+            font-size: 0.6rem;  /* ลดขนาดตัวหนังสือ (เดิม 0.75) */
+            padding: 2px 5px;   /* ลดความอ้วนของปุ่ม */
+            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+            z-index: 10;
+            border-radius: 4px;
+        }
+        
+        /* เพิ่มระยะห่างในกล่องการ์ด เพื่อไม่ให้เลขห้องชนป้าย */
+        .room-card .card-body {
+            padding-top: 1.8rem !important; /* ดันเลขห้องลงมาหน่อย */
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark shadow-sm sticky-top" style="background-color: #fd7e14;">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="fas fa-building"></i> ระบบจัดการ อพาร์ทเม้นท์ป้าปิ่น</a>
+			<div class="d-flex align-items-center">
+				<span class="navbar-text text-white me-3 d-none d-sm-block" id="userDisplay">...</span>
+				
+				<a href="report.html" class="btn btn-sm btn-light text-primary fw-bold me-2 shadow-sm">
+					<i class="fas fa-chart-line"></i> รายงานรายรับ
+				</a>
+
+				<button onclick="logout()" class="btn btn-sm btn-outline-light">ออกจากระบบ</button>
+			</div>
+        </div>
+    </nav>
+	
+	<div class="card border-0 shadow-sm mb-4">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center bg-white rounded">
+            <h5 class="mb-0 text-primary"><i class="fas fa-building"></i> ภาพรวม</h5>
+            <div style="font-size: 1.1rem;">
+                <span class="badge bg-secondary me-2">
+                    <i class="fas fa-door-closed"></i> ทั้งหมด <span id="statTotal" class="fw-bold">0</span>
+                </span>
+                <span class="badge bg-success">
+                    <i class="fas fa-user-check"></i> มีคนเช่า <span id="statOccupied" class="fw-bold">0</span>
+                </span>
+            </div>
+        </div>
+    </div>
+	
+	<div class="container mt-3">
+		<div id="alertArea" class="alert alert-warning shadow-sm d-none">
+			<strong>🔔 รอบจดมิเตอร์วันนี้/เร็วๆ นี้:</strong> 
+			<span id="dueRoomList"></span>
+		</div>
+	</div>
+
+    <div class="container py-4" id="mainContainer">
+        <div class="text-center py-5" id="loading">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2">กำลังโหลดข้อมูลห้องพัก...</p>
+        </div>
+        </div>
+	<div class="modal fade" id="meterModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header text-white" style="background-color: #fd7e14;">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> จดมิเตอร์ห้อง <span id="modalRoomNum"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="modalContractId">
+                
+                <div class="alert alert-info py-2">
+                    <small>ผู้เช่า: <strong id="modalTenantName">-</strong></small>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="small text-muted">วันที่จดมิเตอร์ (ออกบิล)</label>
+                        <input type="date" id="recordDate" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-6">
+                        <label class="small text-muted">วันครบกำหนดจ่าย</label>
+                        <input type="date" id="dueDate" class="form-control form-control-sm">
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label text-primary fw-bold">💧 มิเตอร์น้ำ</label>
+                        <input type="number" id="inputWater" class="form-control form-control-lg text-center" placeholder="เลขปัจจุบัน">
+                        <div class="form-text text-end">เดิม: <span id="prevWater">0</span></div>
+                    </div>
+                    
+                    <div class="col-6">
+                        <label class="form-label text-warning fw-bold">⚡ มิเตอร์ไฟ</label>
+                        <input type="number" id="inputElectric" class="form-control form-control-lg text-center" placeholder="เลขปัจจุบัน">
+                        <div class="form-text text-end">เดิม: <span id="prevElectric">0</span></div>
+                    </div>
+                </div>
+
+                <div id="calcPreview" class="mt-3 p-2 bg-light rounded d-none">
+                    </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="button" class="btn btn-success w-50" onclick="submitReading()">บันทึก & คำนวณ</button>
+            </div>
+        </div>
+    </div>
+</div>
+	<div class="modal fade" id="moveInModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-user-plus"></i> ลงทะเบียนผู้เช่าใหม่</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="moveInRoomId">
+                <h4 class="text-center text-success mb-3" id="moveInRoomNum">ห้อง Axxx</h4>
+
+                <form id="formMoveIn">
+                    <div class="mb-2">
+                        <label>ชื่อ-นามสกุล ผู้เช่า <span class="text-danger">*</span></label>
+                        <input type="text" id="newTenantName" class="form-control" required>
+                    </div>
+					<div class="mb-2">
+						<label>วันที่เริ่มสัญญา (วันตัดรอบบิล) <span class="text-danger">*</span></label>
+						<input type="date" id="newStartDate" class="form-control" required>
+					</div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label>เบอร์โทรศัพท์</label>
+                            <input type="tel" id="newTenantPhone" class="form-control" required>
+                        </div>
+                        <div class="col-6">
+                            <label>เลขบัตร ปชช. (ถ้ามี)</label>
+                            <input type="text" id="newTenantCard" class="form-control">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label>ค่าเช่า (บาท)</label>
+                            <input type="number" id="newRentPrice" class="form-control" value="3500">
+                        </div>
+                        <div class="col-6">
+                            <label>เงินประกัน (บาท)</label>
+                            <input type="number" id="newDeposit" class="form-control" value="5000">
+                        </div>
+                    </div>
+                    <div class="alert alert-warning p-2 mt-3">
+                        <strong>⚡ เลขมิเตอร์เริ่มต้น (สำคัญมาก)</strong>
+                        <div class="row g-2 mt-2">
+                            <div class="col-6">
+                                <label>มิเตอร์น้ำล่าสุด</label>
+                                <input type="number" id="initWater" class="form-control text-center" placeholder="0">
+                            </div>
+                            <div class="col-6">
+                                <label>มิเตอร์ไฟล่าสุด</label>
+                                <input type="number" id="initElectric" class="form-control text-center" placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="button" class="btn btn-success" onclick="submitMoveIn()">บันทึกข้อมูล</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="billHistoryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="fas fa-history"></i> ประวัติบิล - ห้อง <span id="billRoomNum"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0 text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th>วันที่บิล</th>
+                                <th>ยอดเงิน</th>
+                                <th>สถานะ</th>
+                                <th>จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="billListBody">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="editTenantModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-user-edit"></i> แก้ไขข้อมูลผู้เช่า</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editContractId">
+                <input type="hidden" id="editMeterId"> <div class="mb-3">
+                    <label>ชื่อ-นามสกุล</label>
+                    <input type="text" id="editName" class="form-control">
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label>เบอร์โทรศัพท์</label>
+                        <input type="text" id="editPhone" class="form-control">
+                    </div>
+                    <div class="col-6">
+                        <label>เลขบัตรประชาชน</label>
+                        <input type="text" id="editCard" class="form-control">
+                    </div>
+                </div>
+
+                <hr>
+                <h6 class="text-primary"><i class="fas fa-file-contract"></i> ข้อมูลสัญญา</h6>
+                
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label>ค่าเช่า (บาท)</label>
+                        <input type="number" id="editRent" class="form-control">
+                    </div>
+                    <div class="col-6">
+                        <label>เงินประกัน (บาท)</label>
+                        <input type="number" id="editDeposit" class="form-control">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label>วันที่เริ่มสัญญา</label>
+                    <input type="date" id="editStartDate" class="form-control">
+                </div>
+
+                <div class="alert alert-warning p-2">
+                    <small>⚡ <b>แก้ไขมิเตอร์เริ่มต้น (ระวัง!)</b>: แก้เฉพาะกรณีลงผิดตอนแรก</small>
+                    <div class="row g-2 mt-1">
+                        <div class="col-6">
+                            <label>มิเตอร์น้ำ (เริ่มต้น)</label>
+                            <input type="number" id="editInitWater" class="form-control text-center">
+                        </div>
+                        <div class="col-6">
+                            <label>มิเตอร์ไฟ (เริ่มต้น)</label>
+                            <input type="number" id="editInitElec" class="form-control text-center">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="button" class="btn btn-primary" onclick="saveTenantChanges()">บันทึกการแก้ไข</button>
+            </div>
+        </div>
+    </div>
+</div>
+    <script>
+        // เมื่อเปิดหน้าเว็บ ให้โหลดข้อมูลทันที
+        document.addEventListener('DOMContentLoaded', loadDashboard);
+
+		async function loadDashboard() {
+            try {
+                const response = await fetch('api/dashboard.php');
+                
+                // ถ้า Session หมดอายุ หรือไม่ได้ Login ให้ดีดออก
+                if (response.status === 401) {
+                    window.location.href = 'test_login.html';
+                    return;
+                }
+
+                // ตรวจสอบว่า Server ส่ง JSON กลับมาจริงไหม
+                const text = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(text);
+                } catch (e) {
+                    console.error('Server Error:', text);
+                    alert('ระบบเกิดข้อผิดพลาดทางเทคนิค (ดูใน Console)');
+                    return;
+                }
+                
+                if (result.status === 'success') {
+                    renderBuildings(result.data);
+                } else {
+                    alert('เกิดข้อผิดพลาด: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('ไม่สามารถเชื่อมต่อ Server ได้');
+            } finally {
+                // ส่วนสำคัญ! สั่งปิดตัวหมุน (เขียนแบบปลอดภัย)
+                const loadingEl = document.getElementById('loading');
+                if (loadingEl) {
+                    loadingEl.style.display = 'none';
+                }
+            }
+			// 🔥 [เพิ่ม] เรียกดูแจ้งเตือน
+            checkDueRooms();
+        }
+		
+		async function checkDueRooms() {
+            try {
+                const res = await fetch('api/get_due_rooms.php');
+                const result = await res.json();
+                
+                const alertArea = document.getElementById('alertArea');
+                const listSpan = document.getElementById('dueRoomList');
+                
+                if (result.status === 'success' && result.data.length > 0) {
+                    // เอาเลขห้องมาต่อกันเป็น comma
+                    const roomNums = result.data.map(r => `<span class="badge bg-danger ms-1">${r.room_number}</span>`).join(' ');
+                    listSpan.innerHTML = roomNums;
+                    alertArea.classList.remove('d-none');
+                } else {
+                    alertArea.classList.add('d-none');
+                }
+            } catch (err) { console.error(err); }
+        }
+		
+        function renderBuildings(data) {
+            const container = document.getElementById('mainContainer');
+            container.innerHTML = ''; // เคลียร์หน้าจอ
+			
+			// 🔥 [เพิ่มตัวแปรนับ]
+            let countTotal = 0;
+            let countOccupied = 0;
+
+            // วนลูปสร้างโซนแต่ละตึก
+            for (const [buildingName, rooms] of Object.entries(data)) {
+                
+                // หัวข้อตึก
+                const buildingHeader = document.createElement('h4');
+                buildingHeader.className = 'mb-3 mt-2 text-primary border-bottom pb-2';
+                buildingHeader.innerHTML = `<i class="fas fa-hotel"></i> ${buildingName}`;
+                container.appendChild(buildingHeader);
+
+                // Grid สำหรับห้องพัก
+                const row = document.createElement('div');
+                row.className = 'row row-cols-2 row-cols-md-4 row-cols-lg-6 g-3 mb-4';
+
+				rooms.forEach(room => {
+					// 🔥 [เพิ่มการนับ]
+                    countTotal++;
+						if (room.status === 'occupied') {
+							countOccupied++;
+						}
+                    const col = document.createElement('div');
+                    col.className = 'col';
+                    
+                    let statusClass = 'status-available';
+                    let icon = '<i class="fas fa-check-circle text-success"></i>';
+                    let infoText = '<span class="text-success">ว่าง</span>';
+                    let badgeHtml = ''; // 🔥 ตัวแปรเก็บป้ายสถานะ
+
+					if (room.status === 'occupied') {
+                        statusClass = 'status-occupied';
+                        icon = '<i class="fas fa-user text-danger"></i>';
+                        infoText = room.tenant_name ? room.tenant_name : 'ไม่ระบุชื่อ';
+
+                        // -----------------------------------------------------------
+                        // 🔥 Logic ใหม่: ระบุวันชัดเจน (Today, Tomorrow, In X days)
+                        // -----------------------------------------------------------
+                        if (room.bill_status === 'paid') {
+                            // 1. จ่ายแล้ว
+                            badgeHtml = '<span class="badge bg-success status-badge"><i class="fas fa-check-circle"></i> จ่ายแล้ว</span>';
+                        } 
+                        else if (room.bill_status === 'pending') {
+                            // 2. จดแล้ว รอจ่าย
+                            badgeHtml = '<span class="badge bg-warning text-dark status-badge"><i class="fas fa-file-invoice-dollar"></i> รอจ่าย</span>';
+                        }
+						else if (room.start_date) {
+                            // 3. ยังไม่จด -> คำนวณวัน
+                            const today = new Date();
+                            const billDate = new Date(room.start_date);
+                            
+                            // 🔥 [เพิ่ม Logic] เช็คว่าเป็นเดือนแรกที่เข้าอยู่หรือไม่?
+                            // ถ้า ปีเดียวกัน และ เดือนเดียวกัน => ถือว่าเป็นเดือนแรก (ยังไม่ต้องจด)
+                            const isFirstMonth = (today.getFullYear() === billDate.getFullYear()) && 
+                                                 (today.getMonth() === billDate.getMonth());
+
+                            if (!isFirstMonth) {
+                                // ถ้าไม่ใช่เดือนแรก ค่อยคำนวณวันแจ้งเตือน
+                                const billDay = billDate.getDate(); // วันตัดรอบ
+                                const currentDay = today.getDate(); // วันนี้
+                                
+                                let diff = billDay - currentDay;
+
+                                if (diff === 0) {
+                                    badgeHtml = '<span class="badge bg-danger status-badge blink">🔔 จดวันนี้!</span>';
+                                } 
+                                else if (diff === 1) {
+                                    badgeHtml = '<span class="badge bg-warning text-dark status-badge">⏳ พรุ่งนี้</span>';
+                                }
+                                else if (diff > 1 && diff <= 3) {
+                                    badgeHtml = `<span class="badge bg-info text-dark status-badge">📅 อีก ${diff} วัน</span>`;
+                                }
+                                else if (diff < 0 && diff >= -5) {
+                                    badgeHtml = `<span class="badge bg-dark status-badge">⚠️ เลยมา ${Math.abs(diff)} วัน</span>`;
+                                }
+                            } else {
+                                // (แถม) ถ้าเป็นเดือนแรก อาจจะโชว์ป้ายบอกว่า "ผู้เช่าใหม่" ก็ได้ (หรือปล่อยว่างไว้)
+                                badgeHtml = '<span class="badge bg-info text-dark status-badge" style="background-color: #e2e3e5 !important;">🆕 ผู้เช่าใหม่</span>';
+                            }
+                        }
+                        /*else if (room.start_date) {
+                            // 3. ยังไม่จด -> คำนวณวันคงเหลือ
+                            const today = new Date();
+                            const billDate = new Date(room.start_date);
+                            const billDay = billDate.getDate(); // วันตัดรอบ (เช่น วันที่ 5)
+                            const currentDay = today.getDate(); // วันนี้ (เช่น วันที่ 3)
+                            
+                            // คำนวณส่วนต่าง (Target - Today)
+                            // เช่น รอบวันที่ 5, วันนี้วันที่ 3 -> diff = 2 (อีก 2 วัน)
+                            let diff = billDay - currentDay;
+
+                            // กรณีข้ามเดือน (เช่น รอบวันที่ 1, วันนี้ 30) -> อันนี้ซับซ้อนขอข้ามไปก่อน เอาแบบวันชนวันในเดือนเดียวกัน
+                            // แต่เพื่อความง่าย เราจะโชว์เฉพาะช่วงใกล้ๆ ของเดือนนั้นๆ
+                            
+                            if (diff === 0) {
+                                // ตรงวันเป๊ะ
+                                badgeHtml = '<span class="badge bg-danger status-badge blink">🔔 จดวันนี้!</span>';
+                            } 
+                            else if (diff === 1) {
+                                // พรุ่งนี้
+                                badgeHtml = '<span class="badge bg-warning text-dark status-badge">⏳ พรุ่งนี้</span>';
+                            }
+                            else if (diff > 1 && diff <= 3) {
+                                // อีก 2-3 วัน
+                                badgeHtml = `<span class="badge bg-info text-dark status-badge">📅 อีก ${diff} วัน</span>`;
+                            }
+                            else if (diff < 0 && diff >= -5) {
+                                // เลยกำหนดมาแล้ว (เช่น เลยมา 2 วัน) และยังไม่จด
+                                // Math.abs คือแปลงค่าลบเป็นบวก (-2 -> 2)
+                                badgeHtml = `<span class="badge bg-dark status-badge">⚠️ เลยมา ${Math.abs(diff)} วัน</span>`;
+                            }
+                        }*/
+                        // ----------------------------------------
+                    } else if (room.status === 'maintenance') {
+                        statusClass = 'status-maintenance';
+                        icon = '<i class="fas fa-tools text-secondary"></i>';
+                        infoText = '<span class="text-secondary">ซ่อมบำรุง</span>';
+                    }
+					
+					// 🔥 [อัปเดตตัวเลขขึ้นหน้าจอ]
+					document.getElementById('statTotal').innerText = countTotal;
+					document.getElementById('statOccupied').innerText = countOccupied;
+
+				// เตรียมข้อความรอบบิล (ถ้ามีคนอยู่)
+					let billCycleText = '';
+					if (room.status === 'occupied' && room.start_date) {
+						const day = new Date(room.start_date).getDate(); // ดึงเลขวัน (เช่น 5)
+						billCycleText = `<div style="font-size: 0.7rem; color: #888; margin-top: 2px;"><i class="far fa-calendar-alt"></i> รอบวันที่ ${day}</div>`;
+					}
+
+					// ส่วนสร้าง HTML การ์ด
+					col.innerHTML = `
+						<div class="card h-100 room-card ${statusClass} position-relative" onclick="openRoomDetail(${room.id}, '${room.room_number}')">
+							${badgeHtml} 
+							<div class="card-body text-center p-2 pt-3">
+								<div class="room-number">${room.room_number}</div>
+								<div class="mb-1">${icon}</div>
+								<div class="tenant-name">${infoText}</div>
+								
+								${billCycleText}
+								
+							</div>
+						</div>
+					`;
+                    row.appendChild(col);
+                });
+
+                container.appendChild(row);
+            }
+        }
+
+        async function logout() {
+            if(confirm('ต้องการออกจากระบบหรือไม่?')) {
+                await fetch('api/logout.php');
+                window.location.href = 'test_login.html';
+            }
+        }
+
+        // ตัวแปรสำหรับ Modal
+let meterModal;
+let moveInModal;
+let billModal;
+let editTenantModal;
+
+// 🔥 [เพิ่มใหม่] ตัวแปรสำหรับจำว่ากำลังเปิดดูประวัติห้องไหนอยู่
+let currentOpenRoomId = null;
+let currentOpenRoomNum = '';
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboard();
+    meterModal = new bootstrap.Modal(document.getElementById('meterModal'));
+    moveInModal = new bootstrap.Modal(document.getElementById('moveInModal'));
+	billModal = new bootstrap.Modal(document.getElementById('billHistoryModal'));
+	editTenantModal = new bootstrap.Modal(document.getElementById('editTenantModal'));
+});
+
+// 2. ฟังก์ชันเปิดหน้าแก้ไข (เอาข้อมูลปัจจุบันไปหยอดใส่ช่อง)
+function openEditTenant(contractId, name, phone, card, startDate) {
+    document.getElementById('editContractId').value = contractId;
+    document.getElementById('editName').value = name;
+    document.getElementById('editPhone').value = phone || '';
+    document.getElementById('editCard').value = card || '';
+    document.getElementById('editStartDate').value = startDate;
+    
+    // ซ่อน Modal จดมิเตอร์ก่อน จะได้ไม่ซ้อนกัน
+    meterModal.hide();
+    editTenantModal.show();
+}
+
+// 3. ฟังก์ชันบันทึกข้อมูล
+async function saveTenantChanges() {
+    // 1. ลองดึงค่ามาดูว่า iPad มองเห็นไหม
+    const cid = document.getElementById('editContractId').value;
+    const name = document.getElementById('editName').value;
+    const phone = document.getElementById('editPhone').value;
+    const card = document.getElementById('editCard').value;
+    const start = document.getElementById('editStartDate').value;
+
+    // 🔥 [Debug 1] เช็คว่าค่าว่างไหม
+    if(!name) { alert('❌ ชื่อว่างเปล่า'); return; }
+    if(!start) { alert('❌ วันที่ว่างเปล่า (กรุณาเลือกวันที่ใหม่)'); return; }
+
+    // 🔥 [Debug 2] เช็คว่าโค้ดมาถึงตรงนี้ไหม
+    // alert('กำลังจะบันทึก... ' + name); 
+
+    if(confirm('ยืนยันการแก้ไขข้อมูล?')) {
+        try {
+            const res = await fetch('api/update_tenant.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }, // เพิ่ม Header ให้ชัวร์
+                body: JSON.stringify({
+                    contract_id: cid, 
+                    fullname: name, 
+                    phone: phone, 
+                    id_card: card, 
+                    start_date: start
+                })
+            });
+            
+            // เช็คว่า Server ตอบกลับมาเป็น JSON หรือ Error HTML
+            const text = await res.text();
+            let result;
+            try {
+                result = JSON.parse(text);
+            } catch(e) {
+                alert('❌ Server Error:\n' + text); // ฟ้อง Error ถ้า PHP พัง
+                return;
+            }
+            
+            if(result.status === 'success') {
+                alert('✅ ' + result.message);
+                
+                // ปิด Modal แบบปลอดภัย (กัน Error บน iPad)
+                const modalEl = document.getElementById('editTenantModal');
+                const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                if (modalInstance) {
+                    modalInstance.hide();
+                } else {
+                    // Fallback ถ้าหา instance ไม่เจอ
+                    new bootstrap.Modal(modalEl).hide();
+                }
+
+                loadDashboard(); 
+            } else {
+                alert('❌ เกิดข้อผิดพลาด: ' + result.message);
+            }
+        } catch(err) { 
+            alert('❌ เชื่อมต่อ Server ไม่ได้ (Connection Error): ' + err); 
+        }
+    }
+}
+
+// ฟังก์ชันหลักเวลาจิ้มที่ห้อง (ฉบับแก้ไข: ครอบคลุมห้องว่างทุกกรณี)
+async function openRoomDetail(roomId, roomNum) {
+    // 1. เคลียร์ค่าเก่าก่อน
+    document.getElementById('prevWater').innerText = '...';
+    document.getElementById('prevElectric').innerText = '...';
+    document.getElementById('inputWater').value = '';
+    document.getElementById('inputElectric').value = '';
+    document.getElementById('modalContractId').value = '';
+    
+	// ตั้งค่าวันที่ default
+    const today = new Date().toISOString().split('T')[0];
+    
+    // ตั้งค่าให้เป็น "วันนี้" ทั้งคู่
+    document.getElementById('recordDate').value = today;
+    document.getElementById('dueDate').value = today; // 🔥 แก้ตรงนี้ครับ จบเลย
+
+    try {
+        const res = await fetch(`api/get_room_detail.php?id=${roomId}&v=${Date.now()}`);
+        const result = await res.json();
+
+        // 🔥 [แก้ไข Logic] ใช้ if...else ง่ายๆ เลยครับ
+        if (result.status === 'success') {
+            // --- กรณี B: มีคนอยู่ (Success) ---
+            const data = result.data;
+            const editBtn = `
+                <button class="btn btn-sm btn-outline-warning ms-2" 
+                    onclick="loadAndOpenEdit(${data.id})">
+                    <i class="fas fa-edit"></i>
+                </button>
+            `;
+
+            document.getElementById('modalRoomNum').innerText = data.room_number;
+            document.getElementById('modalTenantName').innerHTML = `
+                ${data.fullname} ${editBtn}
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-info text-white me-1" onclick="openBillHistory(${data.room_id}, '${data.room_number}')">
+                        <i class="fas fa-receipt"></i> ประวัติบิล/ชำระเงิน
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="moveOut(${data.room_id})">
+                        แจ้งย้ายออก
+                    </button>
+                </div>
+            `;
+            
+            document.getElementById('modalContractId').value = data.id;
+            document.getElementById('prevWater').innerText = data.last_water;
+            document.getElementById('prevElectric').innerText = data.last_electric;
+            
+            meterModal.show();
+
+        } else {
+            // --- กรณี A: ห้องว่าง (หรือ Error อื่นๆ ให้ถือว่าว่างไว้ก่อน) ---
+            // ไม่ต้องเช็คข้อความ message แล้ว ให้เข้าเงื่อนไขนี้เลย
+            
+            document.getElementById('moveInRoomId').value = roomId;
+            document.getElementById('moveInRoomNum').innerText = 'ห้อง ' + roomNum;
+            document.getElementById('newStartDate').valueAsDate = new Date();
+            
+            // เคลียร์ค่าเลขมิเตอร์เริ่มต้น
+            document.getElementById('initWater').value = '';
+            document.getElementById('initElectric').value = '';
+            
+            moveInModal.show();
+        }
+
+    } catch (err) {
+        // Fallback กรณี Error หนักๆ (Server พัง)
+        console.error(err);
+        document.getElementById('moveInRoomId').value = roomId;
+        document.getElementById('moveInRoomNum').innerText = 'ห้อง ' + roomNum; // ใส่เลขห้องให้ด้วย
+        moveInModal.show();
+    }
+}
+
+// ฟังก์ชันบันทึกคนเข้าพัก (Move In)
+async function submitMoveIn() {
+    const roomId = document.getElementById('moveInRoomId').value;
+    const name = document.getElementById('newTenantName').value;
+    const phone = document.getElementById('newTenantPhone').value;
+    const rent = document.getElementById('newRentPrice').value;
+    const deposit = document.getElementById('newDeposit').value;
+    const initW = document.getElementById('initWater').value;
+    const initE = document.getElementById('initElectric').value;
+	// 🔥 [เพิ่ม] รับค่าวันที่
+    const startDate = document.getElementById('newStartDate').value;
+
+	if(!name || !initW || !initE || !startDate) { // เช็ค startDate ด้วย
+        alert('กรุณากรอกข้อมูลให้ครบถ้วน');
+        return;
+    }
+
+    if(confirm('ยืนยันข้อมูลผู้เช่าถูกต้อง?')) {
+        const res = await fetch('api/manage_contract.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'move_in',
+                room_id: roomId,
+                fullname: name,
+                phone: phone,
+                rent_price: rent,
+                deposit: deposit,
+                init_water: initW,
+                init_electric: initE,
+                start_date: startDate // 🔥 ส่งวันที่ที่เลือกไป (แทนที่จะให้ PHP ใช้ CURDATE)
+            })
+        });
+        const result = await res.json();
+        if(result.status === 'success') {
+            alert(result.message);
+            moveInModal.hide();
+            loadDashboard(); // รีเฟรชหน้าจอ
+        } else {
+            alert(result.message);
+        }
+    }
+}
+
+// ฟังก์ชันแจ้งย้ายออก (Move Out)
+async function moveOut(roomId) {
+    if(confirm('⚠️ คำเตือน: คุณต้องการแจ้งย้ายออกห้องนี้ใช่หรือไม่?\n\n- สัญญาจะถูกปิดทันที\n- ห้องจะกลับมาสถานะว่าง')) {
+        const res = await fetch('api/manage_contract.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'move_out',
+                room_id: roomId
+            })
+        });
+        const result = await res.json();
+        if(result.status === 'success') {
+            alert(result.message);
+            meterModal.hide();
+            loadDashboard();
+        } else {
+            alert(result.message);
+        }
+    }
+}
+
+	// ฟังก์ชันบันทึกข้อมูล
+	async function submitReading() {
+		const contractId = document.getElementById('modalContractId').value;
+		const currentWater = document.getElementById('inputWater').value;
+		const currentElectric = document.getElementById('inputElectric').value;
+		// ... (รับค่ามิเตอร์) ...
+		const recDate = document.getElementById('recordDate').value;
+		const dueDate = document.getElementById('dueDate').value;
+
+		if(!currentWater || !currentElectric) {
+			alert('กรุณากรอกเลขมิเตอร์ให้ครบทั้ง 2 ช่อง');
+			return;
+		}
+
+		if(confirm('ยืนยันการบันทึกข้อมูล?')) {
+			try {
+				const res = await fetch('api/save_reading.php', {
+					method: 'POST',
+					// ...
+					body: JSON.stringify({
+						// ... (ค่าเดิม) ...
+						contract_id: contractId,
+						current_water: currentWater,
+						current_electric: currentElectric,
+						
+						// 🔥 [เพิ่ม] ส่งวันที่ไปให้ API
+						reading_date: recDate,
+						due_date: dueDate
+					})
+				});
+				
+				const result = await res.json();
+				
+			if(result.status === 'success') {
+                // [แก้ไขตรงนี้] ซ่อน Modal เดิมก่อน
+                meterModal.hide();
+                loadDashboard(); 
+
+                // ถาม user ว่าจะปริ้นเลยไหม
+                if(confirm(`✅ บันทึกสำเร็จ! ยอดเงิน: ${result.total.toLocaleString()} บาท\n\nคุณต้องการ "พิมพ์ใบแจ้งหนี้" ทันทีเลยหรือไม่?`)) {
+                    // เปิดหน้าปริ้นในแท็บใหม่ (Popup)
+                    const printUrl = `print_bill.php?id=${result.invoice_id}`;
+                    window.open(printUrl, 'printWindow', 'width=400,height=600');
+                }
+            } else {
+                alert('❌ เกิดข้อผิดพลาด: ' + result.message);
+            }
+
+			} catch (err) {
+				console.error(err);
+				alert('เชื่อมต่อ Server ไม่ได้');
+			}
+		}
+	}
+	
+// ฟังก์ชันเปิดดูประวัติบิล
+async function openBillHistory(roomId, roomNum) {
+	// 🔥 [เพิ่มใหม่] บันทึกค่าห้องปัจจุบันไว้ในตัวแปร Global
+    currentOpenRoomId = roomId;
+    currentOpenRoomNum = roomNum;
+	
+    document.getElementById('billRoomNum').innerText = roomNum;
+    const tbody = document.getElementById('billListBody');
+    tbody.innerHTML = '<tr><td colspan="4">กำลังโหลด...</td></tr>';
+
+    meterModal.hide(); // ซ่อนหน้าจดมิเตอร์ก่อน
+    billModal.show();  // โชว์หน้าบิล
+
+    try {
+        const res = await fetch(`api/get_bills.php?room_id=${roomId}`);
+        const result = await res.json();
+
+        tbody.innerHTML = ''; // เคลียร์ของเก่า
+
+			result.data.forEach(bill => {
+                let statusBadge, actionBtn;
+    
+			// ----------------------------------------------------
+            // 1. ตรวจสอบสถานะปุ่ม LINE (Logic ใหม่)
+            // ----------------------------------------------------
+            let btnLineHTML = '';
+            
+            // เช็คว่าผู้เช่ามี Line ID ไหม?
+            if (bill.line_user_id) {
+                // A. มีไลน์: เช็คต่อว่าเคยส่งบิลนี้หรือยัง
+                if (bill.line_sent_at) {
+                    // ส่งแล้ว -> ปุ่มแบบส่งซ้ำ
+                    btnLineHTML = `
+                        <button class="btn btn-outline-primary" onclick="sendLineConfirm(${bill.id})" style="min-width: 100px;">
+                            <i class="fab fa-line"></i> ส่งซ้ำ
+                        </button>
+                        <div class="text-success mt-1" style="font-size: 0.7rem;"><i class="fas fa-check-double"></i> ส่งแล้ว</div>
+                    `;
+                } else {
+                    // ยังไม่ส่ง -> ปุ่มสีน้ำเงินปกติ
+                    btnLineHTML = `
+                        <button class="btn btn-primary" onclick="sendLineConfirm(${bill.id})" style="min-width: 100px;">
+                            <i class="fab fa-line"></i> ส่งบิล
+                        </button>
+                    `;
+                }
+            } else {
+                // B. ไม่มีไลน์: แสดงป้ายสีเทา "ไม่พบ Line"
+                btnLineHTML = `
+                    <button class="btn btn-light text-muted border" disabled style="min-width: 100px; cursor: not-allowed;">
+                        <i class="fab fa-line"></i> ไม่มี Line
+                    </button>
+                `;
+            }
+
+            // ----------------------------------------------------
+            // 2. ตรวจสอบสถานะการจ่ายเงิน
+            // ----------------------------------------------------
+            if (bill.is_paid) {
+                // --- จ่ายแล้ว ---
+                statusBadge = `<span class="badge bg-success rounded-pill">จ่ายแล้ว</span>`;
+                actionBtn = `
+                    <button class="btn btn-secondary" onclick="printBill(${bill.id})">
+                        <i class="fas fa-print"></i> พิมพ์ใบเสร็จ
+                    </button>
+                `;
+            } else {
+                // --- ยังไม่จ่าย ---
+                statusBadge = `<span class="badge bg-danger rounded-pill">รอชำระ</span>`;
+                
+                actionBtn = `
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="d-flex flex-column align-items-center">
+                            ${btnLineHTML}
+                        </div>
+                        
+                        <button class="btn btn-success" onclick="payBill(${bill.id}, ${bill.total_amount})" style="min-width: 100px;">
+                            <i class="fas fa-hand-holding-usd"></i> รับเงิน
+                        </button>
+
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-light border" title="พิมพ์" onclick="printBill(${bill.id})">
+                                <i class="fas fa-print text-secondary"></i>
+                            </button>
+                            <button class="btn btn-light border border-danger text-danger" title="ลบบิล" onclick="deleteBill(${bill.id})">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const row = `
+                <tr>
+                    <td>${bill.formatted_date}<br><small class="text-muted">${bill.invoice_number}</small></td>
+                    <td class="fw-bold text-primary">${parseFloat(bill.total_amount).toLocaleString()}</td>
+                    <td>${statusBadge}</td>
+                    <td>${actionBtn}</td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+
+    } catch (err) {
+        console.error(err);
+        tbody.innerHTML = '<tr><td colspan="4" class="text-danger">โหลดข้อมูลไม่สำเร็จ</td></tr>';
+    }
+}
+
+// ฟังก์ชันกดรับเงิน
+async function payBill(invId, amount) {
+    if(confirm(`💰 ยืนยันการรับเงิน...`)) {
+        try {
+            const res = await fetch('api/pay_bill.php', {
+                method: 'POST',
+                body: JSON.stringify({ invoice_id: invId, payment_method: 'cash' })
+            });
+            const result = await res.json();
+            
+            if(result.status === 'success') {
+                alert('✅ บันทึกรับเงินเรียบร้อย!');
+
+                // ❌ ของเดิม: billModal.hide(); (ปิดหน้าต่าง)
+                
+                // 🔥 [แก้เป็น] โหลดตารางใหม่ (ปุ่มจะเปลี่ยนเป็น "จ่ายแล้ว" อัตโนมัติ)
+                openBillHistory(currentOpenRoomId, currentOpenRoomNum);
+                
+                // อัปเดตหน้าหลักข้างหลังด้วย
+                loadDashboard();
+            } else {
+                alert('เกิดข้อผิดพลาด: ' + result.message);
+            }
+        } catch (err) {
+            alert('เชื่อมต่อไม่ได้');
+        }
+    }
+}
+
+// ฟังก์ชันสั่งปริ้น (แยกออกมาให้เรียกใช้ง่ายๆ)
+function printBill(invId) {
+    const printUrl = `print_bill.php?id=${invId}`;
+    window.open(printUrl, 'printWindow', 'width=400,height=600');
+}
+
+// ฟังก์ชันกดส่ง LINE (ยืนยัน)
+async function sendLineConfirm(invId) {
+    // เปลี่ยน alert เป็น confirm (ถ้ายังไม่ได้ทำ) หรือถ้ามี confirm แล้วก็ใช้ต่อ
+    // (สมมติว่ากด Confirm แล้วเข้ามาทำ)
+    
+    // ... (ส่วน fetch) ...
+    try {
+        const res = await fetch('api/send_bill.php', {
+            method: 'POST',
+            body: JSON.stringify({ invoice_id: invId })
+        });
+        const result = await res.json();
+        
+        alert(result.message); // แจ้งเตือนว่าส่งแล้ว
+
+        // 🔥 [แก้ตรงนี้] สั่งโหลดตารางใหม่ทันที (Auto Refresh)
+        if (currentOpenRoomId) {
+            openBillHistory(currentOpenRoomId, currentOpenRoomNum);
+        }
+
+    } catch (err) {
+        alert('เชื่อมต่อไม่ได้');
+    }
+}
+
+// ฟังก์ชันลบบิล (เพื่อจดใหม่)
+async function deleteBill(invId) {
+    if(confirm('⚠️ ต้องการลบบิลนี้เพื่อจดมิเตอร์ใหม่ใช่หรือไม่?...')) {
+        try {
+            const res = await fetch('api/delete_bill.php', {
+                method: 'POST',
+                body: JSON.stringify({ invoice_id: invId })
+            });
+            const result = await res.json();
+            
+            if(result.status === 'success') {
+                // alert(result.message); // (เลือกได้ว่าจะให้เด้งแจ้งไหม หรือลบเงียบๆ แล้วหายไปเลย)
+                
+                // 🔥 [แก้ตรงนี้] โหลดตารางใหม่ (แถวที่ลบจะหายไปเอง)
+                openBillHistory(currentOpenRoomId, currentOpenRoomNum);
+                
+                // อัปเดตหน้าหลักข้างหลังด้วย (เผื่อสถานะห้องเปลี่ยน)
+                loadDashboard(); 
+            } else {
+                alert(result.message);
+            }
+        } catch (err) {
+            alert('เชื่อมต่อไม่ได้');
+        }
+    }
+}
+
+// ฟังก์ชันโหลดข้อมูลมาใส่ Modal (ของใหม่)
+async function loadAndOpenEdit(contractId) {
+    try {
+        meterModal.hide(); // ปิดหน้าจดมิเตอร์ก่อน
+        
+        // เรียก API ไปดึงข้อมูลล่าสุด
+        const res = await fetch(`api/get_contract_info.php?contract_id=${contractId}`);
+        const result = await res.json();
+
+        if (result.status === 'success') {
+            const d = result.data;
+            
+            // หยอดข้อมูลใส่ช่อง
+            document.getElementById('editContractId').value = d.id;
+            document.getElementById('editMeterId').value = d.meter_id; // ID มิเตอร์แถวแรก
+            
+            document.getElementById('editName').value = d.fullname;
+            document.getElementById('editPhone').value = d.phone;
+            document.getElementById('editCard').value = d.id_card;
+            
+            document.getElementById('editRent').value = parseFloat(d.rent_price);
+            document.getElementById('editDeposit').value = parseFloat(d.deposit);
+            document.getElementById('editStartDate').value = d.start_date;
+            
+            document.getElementById('editInitWater').value = d.initial_water;
+            document.getElementById('editInitElec').value = d.initial_electric;
+
+            editTenantModal.show();
+        } else {
+            alert('โหลดข้อมูลไม่สำเร็จ');
+        }
+    } catch(err) {
+        console.error(err);
+        alert('เชื่อมต่อไม่ได้');
+    }
+}
+
+// ฟังก์ชันบันทึก (อัปเดตใหม่)
+async function saveTenantChanges() {
+    if(!confirm('ยืนยันการบันทึกการแก้ไข?')) return;
+
+    try {
+        const payload = {
+            contract_id: document.getElementById('editContractId').value,
+            meter_id: document.getElementById('editMeterId').value,
+            fullname: document.getElementById('editName').value,
+            phone: document.getElementById('editPhone').value,
+            id_card: document.getElementById('editCard').value,
+            
+            rent_price: document.getElementById('editRent').value,
+            deposit: document.getElementById('editDeposit').value,
+            start_date: document.getElementById('editStartDate').value,
+            
+            initial_water: document.getElementById('editInitWater').value,
+            initial_electric: document.getElementById('editInitElec').value
+        };
+
+        const res = await fetch('api/update_tenant.php', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+
+        if(result.status === 'success') {
+            alert('✅ บันทึกเรียบร้อย');
+            editTenantModal.hide();
+            loadDashboard();
+        } else {
+            alert('❌ Error: ' + result.message);
+        }
+    } catch(err) {
+        alert('เชื่อมต่อไม่ได้');
+    }
+}
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>รายงานสรุปรายรับ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background: #f8f9fa; }
+        .card-icon { font-size: 2rem; opacity: 0.8; }
+        
+        /* 🔥 ตั้งค่าเฉพาะตอนสั่งปริ้น (หัวใจสำคัญ) */
+        @media print {
+            /* 1. บังคับให้เป็นแนวนอน (Landscape) เพื่อให้กราฟและตารางดูกว้างสบายตา */
+            @page { 
+                size: A4 landscape; 
+                margin: 10mm; 
+            }
+
+            /* 2. บังคับให้พิมพ์สีพื้นหลัง (แก้ปัญหาการ์ดขาวซีด) */
+            body { 
+                -webkit-print-color-adjust: exact !important; 
+                print-color-adjust: exact !important; 
+                background-color: white !important;
+            }
+
+            /* 3. ซ่อนปุ่มและ Navbar ที่ไม่จำเป็น */
+            .no-print, .navbar, button { 
+                display: none !important; 
+            }
+
+            /* 4. จัด layout ให้เต็มหน้ากระดาษ */
+            .container {
+                width: 100% !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            /* 5. ป้องกันกราฟหรือตารางถูกตัดแบ่งหน้าแบบน่าเกลียด */
+            .card {
+                break-inside: avoid;
+                page-break-inside: avoid;
+                border: 1px solid #ddd !important; /* เติมขอบให้ชัดหน่อยตอนปริ้น */
+                box-shadow: none !important; /* ลบเงาออกจะได้ไม่เลอะ */
+            }
+            
+            tr { page-break-inside: avoid; }
+
+            /* 6. ปรับขนาดกราฟให้พอดีกระดาษ ไม่ล้น ไม่เล็กไป */
+            #incomeChart {
+                max-height: 300px !important;
+                width: 100% !important;
+            }
+            
+            /* บังคับสีตัวหนังสือในการ์ดให้เป็นสีขาวเหมือนหน้าเว็บ */
+            .bg-success, .bg-warning, .bg-primary, .bg-info {
+                color: white !important; 
+            }
+            .text-white {
+                color: white !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-dark bg-primary no-print mb-4">
+        <div class="container">
+            <span class="navbar-brand">📊 ระบบรายงานหอพัก</span>
+            <a href="dashboard.html" class="btn btn-outline-light btn-sm">กลับหน้าหลัก</a>
+        </div>
+    </nav>
+
+    <div class="container pb-5">
+        
+        <div class="card mb-4 no-print shadow-sm">
+            <div class="card-body py-2">
+                <div class="row align-items-end g-2">
+                    <div class="col-md-3">
+                        <label class="small text-muted">ตั้งแต่วันที่</label>
+                        <input type="date" id="startDate" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="small text-muted">ถึงวันที่</label>
+                        <input type="date" id="endDate" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                        <button onclick="loadReport()" class="btn btn-primary w-100"><i class="fas fa-search"></i> ค้นหา</button>
+                    </div>
+                    <div class="col-md-3">
+                        <button onclick="window.print()" class="btn btn-secondary w-100">🖨️ พิมพ์ / PDF</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mb-4">
+            <h3>สรุปรายรับประจำเดือน</h3>
+            <p class="text-muted" id="reportRange">...</p>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card bg-success text-white h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-0">รายรับจริง (เงินเข้าแล้ว)</h6>
+                                <h2 class="mb-0 fw-bold" id="txtIncome">0</h2>
+                                <small id="txtPaidBills">0 บิล</small>
+                            </div>
+                            <div class="card-icon">💰</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-warning text-dark h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-0">รอชำระ (ค้างจ่าย)</h6>
+                                <h2 class="mb-0 fw-bold" id="txtPending">0</h2>
+                            </div>
+                            <div class="card-icon">⏳</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-primary text-white h-100">
+                    <div class="card-body">
+                        <h6>แยกตามตึก (รายรับ)</h6>
+                        <ul id="buildingList" class="list-unstyled mb-0 small">
+                            <li>กำลังโหลด...</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header bg-white fw-bold">📈 แนวโน้มรายรับรายวัน</div>
+            <div class="card-body">
+                <canvas id="incomeChart" height="100"></canvas>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold">📝 รายละเอียดบิล</div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" style="font-size: 0.9rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>วันที่ออกบิล</th>
+                            <th>เลขที่บิล</th>
+                            <th>ห้อง</th>
+                            <th>ผู้เช่า</th>
+                            <th class="text-end">ยอดเงิน</th>
+                            <th class="text-center">สถานะ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ตั้งค่าเริ่มต้นวันที่ (ต้นเดือน - วันนี้)
+        const date = new Date();
+        const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+        
+        // แปลงเป็น format YYYY-MM-DD ให้ input date
+        document.getElementById('startDate').valueAsDate = firstDay;
+        document.getElementById('endDate').valueAsDate = date;
+
+        let myChart = null;
+
+        // โหลดข้อมูลเมื่อเปิดหน้า
+        loadReport();
+
+        async function loadReport() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            
+            // แสดงช่วงวันที่
+            document.getElementById('reportRange').innerText = `ข้อมูลวันที่ ${formatDate(start)} ถึง ${formatDate(end)}`;
+
+            try {
+                const res = await fetch(`api/get_report.php?start=${start}&end=${end}`);
+                const result = await res.json();
+
+                if (result.status === 'success') {
+                    renderSummary(result.summary);
+                    renderBuildingStats(result.by_building);
+                    renderChart(result.daily);
+                    renderTable(result.list);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('โหลดข้อมูลไม่สำเร็จ');
+            }
+        }
+
+        function renderSummary(data) {
+            document.getElementById('txtIncome').innerText = parseFloat(data.total_income || 0).toLocaleString();
+            document.getElementById('txtPaidBills').innerText = `${data.paid_bills} บิล`;
+            document.getElementById('txtPending').innerText = parseFloat(data.total_pending || 0).toLocaleString();
+        }
+
+        function renderBuildingStats(data) {
+            const list = document.getElementById('buildingList');
+            list.innerHTML = '';
+            if(data.length === 0) { list.innerHTML = '<li>ไม่มีข้อมูล</li>'; return; }
+            
+            data.forEach(b => {
+                list.innerHTML += `<li class="d-flex justify-content-between">
+                    <span>${b.name}</span>
+                    <span>${parseFloat(b.amount).toLocaleString()}</span>
+                </li>`;
+            });
+        }
+
+        function renderChart(dailyData) {
+            const ctx = document.getElementById('incomeChart').getContext('2d');
+            
+            // เตรียมข้อมูลกราฟ
+            const labels = dailyData.map(d => formatDate(d.pay_date));
+            const values = dailyData.map(d => d.total);
+
+            if (myChart) myChart.destroy(); // ลบกราฟเก่าก่อนสร้างใหม่
+
+            myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'รายรับ (บาท)',
+                        data: values,
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        function renderTable(list) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            list.forEach(item => {
+                let statusBadge = item.status === 'paid' 
+                    ? '<span class="badge bg-success">จ่ายแล้ว</span>' 
+                    : '<span class="badge bg-danger">ค้างชำระ</span>';
+                
+                let paidDate = item.paid_at ? `<br><small class="text-muted">จ่าย: ${formatDate(item.paid_at)}</small>` : '';
+
+                const row = `<tr>
+                    <td>${formatDate(item.created_at)}</td>
+                    <td>${item.invoice_number}</td>
+                    <td><span class="badge bg-primary">${item.room_number}</span></td>
+                    <td>${item.fullname}</td>
+                    <td class="text-end fw-bold">${parseFloat(item.total_amount).toLocaleString()}</td>
+                    <td class="text-center">${statusBadge}${paidDate}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+            });
+        }
+
+        function formatDate(dateString) {
+            if(!dateString) return '-';
+            const d = new Date(dateString);
+            return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+        }
+    </script>
+</body>
+</html>
