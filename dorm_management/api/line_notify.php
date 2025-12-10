@@ -5,11 +5,11 @@ function sendLineNotify($message, $imageUrl = null, $targetUserId = null) {
     
     // ==========================================================
     // 1. ตั้งค่า Token
-    $access_token = 'zwjs4b3gTWBX7MDpTKIlu3h6rUL4nVCN9I6NZNOL9mS33uCbIZ9mjlsKVOPZW7e1mZ+eyKNanVqheJM/dVYpL3Cu2Yu3+/GTrF4L7tSIVU3K4JdBMS0oHuKDYysQZcrNWOneKymIV3oMyRg5XzkqFgdB04t89/1O/w1cDnyilFU='; 
+    $access_token = ''; 
 
     // 2. ตั้งค่ารายการ Admin (ใส่ได้มากกว่า 1 คน)
 	$admin_list = [
-        'Uef60c12cdee162dff003c014bbaa8c40' // Admin 1 (คุณ)
+        '' // Admin 1 (คุณ)
         //'Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', // Admin 2 (...)
         //'Uyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy'  // Admin 3 (...)
     ];
